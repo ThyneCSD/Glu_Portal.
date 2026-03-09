@@ -42,10 +42,18 @@ def draw_landmarks(frame, hand_landmarks):
     """Draw hand landmarks on frame"""
     h, w, c = frame.shape
 
-    for landmark in hand_landmarks:
+    for i in [0,1,2,3,5,6,7,9,10,11,13,14,15,17,18,19]: #20 punten
+        landmark = hand_landmarks[i]
         x = int(landmark.x * w)
         y = int(landmark.y * h)
-        cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
+        cv2.circle(frame, (x, y), 5, (0, 155, 0), -1)
+
+    for i in [4,8,12,16,20]: 
+        landmark = hand_landmarks[i]
+        x = int(landmark.x * w)
+        y = int(landmark.y * h)
+        cv2.circle(frame, (x, y), 5, (255, 0, 0), -1)
+    
 
 def is_scissors(hand_landmarks):
     index_folded = hand_landmarks[8].x < hand_landmarks[6].x
