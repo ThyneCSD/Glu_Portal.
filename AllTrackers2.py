@@ -2,7 +2,7 @@ import mediapipe as mp
 import cv2
 import time
 import numpy as np
-import pyvirtualcam
+#import pyvirtualcam
 import os
 import sys
 print("Loading hand tracking model...")
@@ -47,20 +47,20 @@ for camera_index in range(5):
 
 
 # Read logo and resize
-logo = cv2.imread('Test.png', cv2.IMREAD_UNCHANGED)
-size = 100
-if logo is not None:
-    logo = cv2.resize(logo, (size, size))
-    if logo.shape[2] == 4:
-        logo_bgr = logo[:, :, :3]
-        alpha = logo[:, :, 3] / 255.0
-        mask = (alpha * 255).astype(np.uint8)
-    else:
-        logo_bgr = logo
-        mask = 255 * np.ones(logo_bgr.shape[:2], dtype=np.uint8)
-else:
-    logo_bgr = None
-    mask = None
+#logo = cv2.imread('Test.png', cv2.IMREAD_UNCHANGED)
+#size = 100
+#if logo is not None:
+#    logo = cv2.resize(logo, (size, size))
+#    if logo.shape[2] == 4:
+#        logo_bgr = logo[:, :, :3]
+#        alpha = logo[:, :, 3] / 255.0
+#        mask = (alpha * 255).astype(np.uint8)
+#    else:
+#        logo_bgr = logo
+#        mask = 255 * np.ones(logo_bgr.shape[:2], dtype=np.uint8)
+#else:
+#    logo_bgr = None
+#    mask = None
 
 
 if capture is None:
@@ -70,7 +70,7 @@ if capture is None:
 #virtual webcam starten
 width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-cam = pyvirtualcam.Camera(width=width, height=height, fps=30)
+#cam = pyvirtualcam.Camera(width=width, height=height, fps=30)
 
 #fullscreen window maken (lukt niet heel goed)
 cv2.namedWindow("Hand Tracking", cv2.WINDOW_NORMAL)
@@ -174,8 +174,6 @@ while True:
 
     if random_fingerNumber is not None:
         got_Number = True
-        cv2.putText(frame, f"gotNumber: {got_Number}", (300, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
     if missionActive:
         cv2.putText(frame, f"Mission: put up {random_fingerNumber} fingers!", (50, 50),
@@ -217,8 +215,8 @@ while True:
     # cv2.putText(frame, f'FPS: {int(fps)}', (10, 30),
                 #cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     # frame naar virtual webcam sturen (pyvirtualcam verwacht RGB)
-    cam.send(frame[:, :, ::-1])
-    cam.sleep_until_next_frame()
+    #cam.send(frame[:, :, ::-1])
+    # cam.sleep_until_next_frame()
 
     #fullscreen laten zien zonder stretch
     cv2.imshow("Hand Tracking", frame)

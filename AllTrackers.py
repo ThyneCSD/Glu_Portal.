@@ -2,8 +2,10 @@ import mediapipe as mp
 import cv2
 import time
 import numpy as np
-import pyvirtualcam
-
+import asyncio
+#import pyvirtualcam
+import os
+import sys
 print("Loading hand tracking model...")
 
 BaseOptions = mp.tasks.BaseOptions
@@ -16,10 +18,19 @@ ImageFormat = mp.ImageFormat
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml') #laad het detectie model in.
 
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(script_dir, "hand_landmarker.task")
+if not os.path.exists(model_path):
+    sys.stderr.write(
+        f"Model not found at {model_path}\n"
+        "Download 'hand_landmarker.task' from the MediaPipe Tasks model zoo and place it in this folder.\n"
+    )
+    sys.exit(1)
+
 options = HandLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path='hand_landmarker.task'),
+    base_options=BaseOptions(model_asset_path=model_path),
     running_mode=VisionRunningMode.VIDEO,
-    num_hands=2 #aantal handen wowowow.
+    num_hands=1 #aantal handen wowowow.
 )
 
 print("Initializing hand tracker...")
@@ -37,20 +48,20 @@ for camera_index in range(5):
 
 
 # Read logo and resize
-logo = cv2.imread('Test.png', cv2.IMREAD_UNCHANGED)
-size = 100
-if logo is not None:
-    logo = cv2.resize(logo, (size, size))
-    if logo.shape[2] == 4:
-        logo_bgr = logo[:, :, :3]
-        alpha = logo[:, :, 3] / 255.0
-        mask = (alpha * 255).astype(np.uint8)
-    else:
-        logo_bgr = logo
-        mask = 255 * np.ones(logo_bgr.shape[:2], dtype=np.uint8)
-else:
-    logo_bgr = None
-    mask = None
+#logo = cv2.imread('Test.png', cv2.IMREAD_UNCHANGED)
+#size = 100
+#if logo is not None:
+#    logo = cv2.resize(logo, (size, size))
+#    if logo.shape[2] == 4:
+#        logo_bgr = logo[:, :, :3]
+#        alpha = logo[:, :, 3] / 255.0
+#        mask = (alpha * 255).astype(np.uint8)
+#    else:
+#        logo_bgr = logo
+#        mask = 255 * np.ones(logo_bgr.shape[:2], dtype=np.uint8)
+#else:
+#    logo_bgr = None
+#    mask = None
 
 
 if capture is None:
@@ -60,20 +71,39 @@ if capture is None:
 #virtual webcam starten
 width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-cam = pyvirtualcam.Camera(width=width, height=height, fps=30)
+#cam = pyvirtualcam.Camera(width=width, height=height, fps=30)
 
-#fullscreen window maken
+#fullscreen window maken (lukt niet heel goed)
 cv2.namedWindow("Hand Tracking", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("Hand Tracking", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
 p_time = 0
 frame_count = 0
 
+missionActive = True
+missionCompleted = False
+missionCompletedTime = None
+
+# Edit this list to add your own questions. Each item is a dict with:
+#  - 'text': the question shown on screen
+# If 'target' is None, any detected fingers (>=1) complete the mission.
+missions = [
+    {"text": "hoe voel je je vandaag? (steek 1-5 vingers op)", "target": None},
+    {"text": "Wat vind je van jouw locatie? (steek 1-5 vingers op)", "target": None},
+    {"text": "wat vind je van het GLU? (steek 1-5 vingers op)", "target": None},
+    {"text": "Wat vind je van de docenten? (steek 1-5 vingers op)", "target": None},
+    {"text": "Wat vind je van de lesstof? (steek 1-5 vingers op)", "target": None},
+    {"text": "Wat vind je van je klasgenoten. (steek 1-5 vingers op)", "target": None},
+    {"text": "Wat is de betere locatie (1 = A 2 = B 3 = C en 4 = W)", "target": None},
+]
+current_mission_idx = 0
+current_mission = missions[current_mission_idx]
+
 def draw_landmarks(frame, hand_landmarks):
     """Draw hand landmarks on frame"""
     h, w, c = frame.shape
 
-    for i in [0,1,2,3,5,6,7,9,10,11,13,14,15,17,18,19]: #20 punten
+    for i in [0,1,2,3,5,6,7,9,10,11,13,14,15,17,18,19]: #20 punten voor op de handen.
         landmark = hand_landmarks[i]
         x = int(landmark.x * w)
         y = int(landmark.y * h)
@@ -93,9 +123,6 @@ def is_scissors(hand_landmarks):
     pinky_folded = hand_landmarks[20].y > hand_landmarks[18].y
 
     return index_folded and middle_folded and ring_folded and pinky_folded
-
-def middle_finger_extended(hand_landmarks):
-    return hand_landmarks[12].y < hand_landmarks[10].y
 
 def is_hand_open(hand_landmarks):
     fingers_extended = 0
@@ -122,6 +149,26 @@ def is_hand_open(hand_landmarks):
 
     return fingers_extended >= 4
 
+def count_fingers(hand_landmarks):
+    count = 0
+    tips_pips = ((8, 6), (12, 10), (16, 14), (20, 18))
+    for tip, pip in tips_pips:
+        if hand_landmarks[tip].y < hand_landmarks[pip].y:
+            count += 1
+
+    is_right = hand_landmarks[17].x < hand_landmarks[5].x
+
+# de duim moet anders want je steek die vaak zeiwaarts uit inplaats van omhoog.
+    if is_right:
+        if hand_landmarks[4].x > hand_landmarks[3].x:
+            count += 1
+    else:
+        if hand_landmarks[4].x < hand_landmarks[3].x:
+            count += 1
+
+    return count
+
+
 while True:
     success, frame = capture.read()
     if not success:
@@ -135,6 +182,12 @@ while True:
     results = hands_tracker.detect_for_video(mp_image, frame_count)
     frame_count += 1
 
+
+
+    if missionActive:
+        cv2.putText(frame, f"Mission: {current_mission['text']}", (25, 25), # hoe groot de mission text is en waar die staat op het scherm.
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+        
     paper_detected = False
     faces = []
 
@@ -142,66 +195,62 @@ while True:
         for hand_landmarks in results.hand_landmarks:
             draw_landmarks(frame, hand_landmarks)
 
-            if is_hand_open(hand_landmarks):
-                paper_detected = True
-                cv2.putText(frame, "Paper", (50, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            elif is_scissors(hand_landmarks):
-                cv2.putText(frame, "Scissors", (50, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 3)
+            fingers_extended = count_fingers(hand_landmarks)
+            cv2.putText(frame, f"Fingers: {fingers_extended}", (50, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+            if missionActive:
+                # If mission target is None, any detected fingers complete it.
+                if current_mission.get('target') is None:
+                    if fingers_extended >= 1:
+                        cv2.putText(frame, f"Mission complete!", (50, 150),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+                        missionCompleted = True
+                        missionCompletedTime = time.time()
+                else:
+                    if fingers_extended == current_mission['target']:
+                        cv2.putText(frame, f"Mission complete!", (50, 150),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                        missionCompleted = True
+                        missionCompletedTime = time.time()
             else:
-                cv2.putText(frame, "Rock", (50, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                cv2.putText(frame, f"Fingers: {fingers_extended}", (50, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
        
-    #alleen gezicht blokkeren als paper gesture
+    # alleen gezicht blokkeren als paper gesture: detecteer nu gezichten en blokkeer ze
     if paper_detected:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
         for (x, y, w, h) in faces:
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 0), -1) # verander de -1 naar 2 of 3 om een rand te maken om het gezicht heen in plaats van het gezicht te blokken.
 
     c_time = time.time()
     fps = 1 / (c_time - p_time) if c_time != p_time else 0
     p_time = c_time
+    # after mission completed, wait 2 seconds then advance to next mission
+    if missionCompleted:
+        if missionCompletedTime is None:
+            missionCompletedTime = time.time()
+        elif time.time() - missionCompletedTime > 2:
+            missionCompleted = False
+            missionCompletedTime = None
+            # advance to next question (wrap around)
+            current_mission_idx = (current_mission_idx + 1) % len(missions)
+            current_mission = missions[current_mission_idx]
     # cv2.putText(frame, f'FPS: {int(fps)}', (10, 30),
                 #cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    
-    # overlay logo on first detected face (centered) if available; fallback bottom-right
-    if logo_bgr is not None and mask is not None:
-        if len(faces) > 0:
-            x, y, w, h = faces[0]
-            # square area at top of face region
-            overlay_size = min(size, w, h)
-            ox1 = max(0, x + w//2 - overlay_size//2)
-            oy1 = max(0, y + h//2 - overlay_size//2)
-            ox2 = ox1 + overlay_size
-            oy2 = oy1 + overlay_size
-            if ox2 <= frame.shape[1] and oy2 <= frame.shape[0]:
-                roi = frame[oy1:oy2, ox1:ox2]
-                resized_logo = cv2.resize(logo_bgr, (overlay_size, overlay_size))
-                resized_mask = cv2.resize(mask, (overlay_size, overlay_size))
-                mask_inv = cv2.bitwise_not(resized_mask)
-                roi_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
-                logo_fg = cv2.bitwise_and(resized_logo, resized_logo, mask=resized_mask)
-                frame[oy1:oy2, ox1:ox2] = cv2.add(roi_bg, logo_fg)
-        else:
-            y1, y2 = frame.shape[0] - size - 10, frame.shape[0] - 10
-            x1, x2 = frame.shape[1] - size - 10, frame.shape[1] - 10
-            roi = frame[y1:y2, x1:x2]
-            if roi.shape[0] == size and roi.shape[1] == size:
-                mask_inv = cv2.bitwise_not(mask)
-                roi_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
-                logo_fg = cv2.bitwise_and(logo_bgr, logo_bgr, mask=mask)
-                frame[y1:y2, x1:x2] = cv2.add(roi_bg, logo_fg)
-
-    #frame naar virtual webcam sturen
-    cam.send(frame)
-    cam.sleep_until_next_frame()
+    # frame naar virtual webcam sturen (pyvirtualcam verwacht RGB)
+    #cam.send(frame[:, :, ::-1])
+    # cam.sleep_until_next_frame()
 
     #fullscreen laten zien zonder stretch
     cv2.imshow("Hand Tracking", frame)
+    
+    screen_width = 1920  # vul je schermresolutie in
+    screen_height = 1080
+
+    frame_resized = cv2.resize(frame, (screen_width, screen_height))
+    cv2.imshow("Hand Tracking", frame_resized)
 
     if cv2.waitKey(1) & 0xFF == 27:  #press escape to quit/klik op escape om te stoppen.
         break
